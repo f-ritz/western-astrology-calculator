@@ -1,0 +1,14 @@
+[03:08:35] GUI started
+[03:08:37] Button clicked - starting thread
+[03:08:37] === CALCULATION THREAD STARTED ===
+[03:08:37] Parsing inputs
+[03:08:37] Getting location
+[03:08:37] Creating AstrologicalSubject
+[03:08:37] Subject created successfully
+[03:08:37] Generating report
+[03:08:37] Report generated
+[03:08:37] Calling finish_calculation
+[03:08:37] finish_calculation started
+[03:08:37] Adding quick positions
+[03:08:37] Skipping SVG generation for diagnosis
+[03:08:37] === CALCULATION FINISHED SUCCESSFULLY ===
