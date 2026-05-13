@@ -12,3 +12,49 @@
 [03:08:37] Adding quick positions
 [03:08:37] Skipping SVG generation for diagnosis
 [03:08:37] === CALCULATION FINISHED SUCCESSFULLY ===
+[03:19:26] GUI started
+[03:20:05] Button clicked - starting thread
+[03:20:05] === CALCULATION THREAD STARTED ===
+[03:20:05] Getting location
+[03:20:06] Creating AstrologicalSubject
+[03:20:08] Subject created successfully
+[03:20:08] Generating report
+[03:20:08] Report generated
+[03:20:08] Calling finish_calculation
+[03:20:08] finish_calculation started
+[03:20:08] Adding quick positions
+[03:20:08] Starting SVG generation
+[03:20:08] SVG saved successfully
+[03:20:08] === CALCULATION FINISHED SUCCESSFULLY ===
+[03:22:26] GUI started
+[03:22:36] GUI started
+[03:22:53] Button clicked - starting thread
+[03:22:53] === CALCULATION THREAD STARTED ===
+[03:22:53] Getting location
+[03:22:54] Creating AstrologicalSubject
+[03:22:54] Subject created successfully
+[03:22:54] Generating report
+[03:22:54] Report generated
+[03:22:54] Calling finish_calculation
+[03:22:54] finish_calculation started
+[03:22:54] Adding quick positions
+[03:22:54] Adding aspects
+[03:22:54] Starting SVG generation
+[03:22:54] SVG saved successfully
+[03:22:54] === CALCULATION FINISHED SUCCESSFULLY ===
+[03:30:30] GUI started
+[03:30:48] Button clicked - starting thread
+[03:30:48] === CALCULATION THREAD STARTED ===
+[03:30:49] Getting location
+[03:30:49] Creating AstrologicalSubject
+[03:30:49] Subject created successfully
+[03:30:49] Generating report
+[03:30:49] Report generated
+[03:30:49] Calling finish_calculation
+[03:30:49] finish_calculation started
+[03:30:49] Adding quick positions
+[03:30:49] Adding aspects from chart_data
+[03:30:49] Added 39 aspects
+[03:30:49] Starting SVG generation
+[03:30:49] SVG saved successfully
+[03:30:49] === CALCULATION FINISHED SUCCESSFULLY ===
