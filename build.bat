@@ -18,7 +18,7 @@ if errorlevel 1 (
 )
 
 echo [1/3] Installing / updating build dependencies...
-pip install pyinstaller customtkinter geopy timezonefinder kerykeion --quiet
+pip install pyinstaller geopy timezonefinder kerykeion sv-ttk --quiet
 
 echo [2/3] Building (onefile, windowed)...
 echo.

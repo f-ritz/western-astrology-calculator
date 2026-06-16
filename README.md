@@ -64,12 +64,13 @@ pyinstaller astrology.spec
 After you click "Generate Natal Chart" (or run the CLI), look on your **Desktop**:
 
 ```
-YourName_1990-05-15_report.txt
-YourName_1990-05-15_report.html     ← easiest to read
-YourName_1990-05-15_natal.svg       ← the birth chart wheel
+YourName_1990-05-15_natal_report.pdf   ← the main nicely formatted report (includes chart image + full data + detailed planet-by-planet + aspect interpretations)
+YourName_1990-05-15_natal.svg          ← the vector birth chart wheel (kept as high-quality separate file)
 ```
 
 A message in the app also tells you the exact path.
+
+The old .txt and .html are no longer the primary output (PDF is). Legacy buttons may still appear for compatibility.
 
 If birth time was left blank/unknown, the files get a `_noon_time` suffix and a prominent warning is included in all outputs.
 
@@ -82,11 +83,11 @@ If birth time was left blank/unknown, the files get a `_noon_time` suffix and a 
 
 ## Project layout (main files)
 
-- `astrology_gui_fixed.py` — the current GUI (this one is packaged)
+- `astrology_gui_fixed.py` — the current GUI (packaged). Now uses standard ttk + sv-ttk for a much more native Windows appearance instead of customtkinter.
 - `astrology_calculator.py` — simple terminal version
 - `build_exe.py` — cross-platform PyInstaller driver (Windows / macOS / Linux)
 - `astrology.spec` — advanced PyInstaller spec (collects kerykeion + swisseph data)
-- `requirements.txt` — runtime deps
+- `requirements.txt` — runtime deps (includes sv-ttk)
 - `build.bat` — convenience builder for Windows (optional)
 
 ## License
