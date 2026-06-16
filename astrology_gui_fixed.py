@@ -3,8 +3,8 @@ import webbrowser
 import sys
 import os
 import threading
+import subprocess
 from pathlib import Path
-import signal
 
 import customtkinter as ctk
 from geopy.geocoders import Nominatim
@@ -34,8 +34,32 @@ def log(message):
     print(message)
 
 
-class TimeoutError(Exception):
-    pass
+def get_desktop_path() -> Path:
+    """Cross-platform desktop folder with common fallbacks (including Windows OneDrive)."""
+    home = Path.home()
+    candidates = [home / "Desktop"]
+
+    # Windows: check OneDrive Desktop if present
+    if os.name == "nt":
+        onedrive = os.environ.get("OneDrive")
+        if onedrive:
+            candidates.insert(0, Path(onedrive) / "Desktop")
+        # Also try OneDriveConsumer in some setups
+        onedrive_consumer = os.environ.get("OneDriveConsumer")
+        if onedrive_consumer:
+            candidates.insert(0, Path(onedrive_consumer) / "Desktop")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    # Last resort: use home (and try to ensure a Desktop subdir exists for future)
+    desktop = home / "Desktop"
+    try:
+        desktop.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return desktop
 
 
 class AstrologyGUI(ctk.CTk):
@@ -153,14 +177,66 @@ class AstrologyGUI(ctk.CTk):
             report_text = report_gen.generate_report()
             log("Report generated")
 
+            # Build quick positions + aspects in background thread (avoids UI work)
+            log("Building key positions and aspects")
+            quick = self._build_quick_positions(subject)
+            aspects, _ = self._build_aspects(subject)
+
+            base_name = f"{name.replace(' ', '_')}_{y}-{m:02d}-{d:02d}"
+            if unknown_time:
+                base_name += "_noon_time"
+
+            # Determine output location: user's Desktop (cross platform)
+            output_dir = get_desktop_path()
+            log(f"Output directory (Desktop): {output_dir}")
+
+            # Generate files directly here in background thread (no nested threads, no UI blocking)
+            log("Generating files on Desktop...")
+            self.txt_path = output_dir / f"{base_name}_report.txt"
+            self.html_path = output_dir / f"{base_name}_report.html"
+            self.svg_path = None
+            svg_error = None
+
+            try:
+                self._create_txt_report(report_text, quick, aspects, base_name, unknown_time, output_dir)
+            except Exception as e:
+                log(f"TXT creation error: {e}")
+
+            try:
+                self._create_html_report(report_text, quick, aspects, base_name, unknown_time, output_dir)
+            except Exception as e:
+                log(f"HTML creation error: {e}")
+
+            # SVG - the previously flaky part. Do it here synchronously in bg thread.
+            try:
+                log("Starting SVG generation (birth chart wheel)...")
+                chart_data = ChartDataFactory.create_natal_chart_data(subject)
+                drawer = ChartDrawer(chart_data=chart_data)
+                svg_filename = f"{base_name}_natal"
+                # kerykeion will write <output_dir>/<svg_filename>.svg
+                drawer.save_svg(output_path=str(output_dir), filename=svg_filename)
+                candidate = output_dir / f"{svg_filename}.svg"
+                if candidate.exists():
+                    self.svg_path = candidate
+                    log(f"SVG saved successfully: {self.svg_path.name}")
+                else:
+                    # In case kerykeion used a different name pattern
+                    self.svg_path = None
+                    svg_error = "SVG file was not found after generation"
+                    log("⚠️  SVG generation completed but file not located at expected path")
+            except Exception as e:
+                log(f"SVG generation error: {e}")
+                self.svg_path = None
+                svg_error = str(e)
+
             log("Calling finish_calculation")
-            self.after(0, self.finish_calculation, report_text, subject, name, y, m, d, unknown_time)
+            self.after(0, self.finish_calculation, report_text, quick, aspects, subject, name, y, m, d, unknown_time, svg_error)
 
         except Exception as e:
             log(f"ERROR: {e}")
             self.after(0, self.show_error, str(e))
 
-    def finish_calculation(self, report_text, subject, name, y, m, d, unknown_time):
+    def finish_calculation(self, report_text, quick, aspects, subject, name, y, m, d, unknown_time, svg_error):
         log("finish_calculation started")
         self.report_text.delete("1.0", "end")
 
@@ -174,87 +250,13 @@ class AstrologyGUI(ctk.CTk):
             log("⚠️  Unknown time warning added to report")
 
         self.report_text.insert("end", report_text)
-
-        # Quick positions
-        log("Adding quick positions")
-        quick = "\n\nKEY POSITIONS\n" + "=" * 50 + "\n"
-        points = [subject.sun, subject.moon, subject.mercury, subject.venus,
-                  subject.mars, subject.jupiter, subject.saturn,
-                  subject.uranus, subject.neptune, subject.pluto]
-        for p in points:
-            retro = " R" if getattr(p, 'retrograde', False) else ""
-            house = getattr(p, 'house', '—')
-            quick += f"{p.name:>10}: {p.sign} {p.position:.1f}°  House {house}{retro}\n"
         self.report_text.insert("end", quick)
-
-        base_name = f"{name.replace(' ', '_')}_{y}-{m:02d}-{d:02d}"
-        if unknown_time:
-            base_name += "_noon_time"
-
-        # === BUILD ASPECTS SECTION ===
-        log("Building aspects section")
-        aspects = "\n\nASPECTS\n" + "=" * 50 + "\n"
-        aspects_data = []  # Store for later use in files
-        try:
-            chart_data = ChartDataFactory.create_natal_chart_data(subject)
-            if hasattr(chart_data, 'aspects') and chart_data.aspects:
-                for aspect in chart_data.aspects:
-                    p1 = aspect.p1_name
-                    p2 = aspect.p2_name
-                    asp_type = aspect.aspect
-                    orb = abs(aspect.orbit)
-                    movement = aspect.aspect_movement
-                    aspect_line = f"{p1:>10} {asp_type:>12} {p2:<10}  Orb: {orb:5.2f}°  {movement}\n"
-                    aspects += aspect_line
-                    aspects_data.append(aspect_line.strip())
-                log(f"Added {len(chart_data.aspects)} aspects")
-            else:
-                aspects += "No aspects found\n"
-        except Exception as e:
-            log(f"Error extracting aspects: {e}")
-            aspects += f"Error: {str(e)}\n"
         self.report_text.insert("end", aspects)
 
-        # === SVG GENERATION WITH TIMEOUT ===
-        log("Starting SVG generation")
-        self.svg_path = None
-        try:
-            chart_data = ChartDataFactory.create_natal_chart_data(subject)
-            log("ChartData created, generating SVG (this may take a moment)...")
+        if svg_error:
+            self.report_text.insert("end", f"\n\n⚠️  SVG birth chart generation issue: {svg_error}\n")
 
-            # Try SVG generation in a thread with timeout
-            svg_thread = threading.Thread(
-                target=self._generate_svg_safe,
-                args=(chart_data, base_name),
-                daemon=True
-            )
-            svg_thread.start()
-            svg_thread.join(timeout=30)  # 30 second timeout
-
-            if svg_thread.is_alive():
-                log("⚠️  SVG generation timed out after 30 seconds - skipping SVG")
-                self.report_text.insert("end", "\n\n⚠️  SVG generation took too long - skipping.\n")
-            elif self.svg_path and self.svg_path.exists():
-                log("SVG saved successfully")
-            else:
-                log("⚠️  SVG generation failed or was not saved")
-                self.report_text.insert("end", "\n\n⚠️  SVG generation failed - chart image unavailable.\n")
-
-        except Exception as e:
-            log(f"Error during SVG generation: {e}")
-            self.report_text.insert("end", f"\n\n⚠️  SVG generation error: {str(e)}\n")
-
-        # === TEXT REPORT ===
-        log("Creating text report")
-        self.txt_path = Path.cwd() / f"{base_name}_report.txt"
-        self._create_txt_report(report_text, quick, aspects, base_name, unknown_time)
-
-        # === HTML REPORT WITH ASPECTS ===
-        log("Creating HTML report with aspects")
-        self.html_path = Path.cwd() / f"{base_name}_report.html"
-        self._create_html_report(report_text, quick, aspects, base_name, unknown_time)
-
-        # Update buttons
+        # Update buttons (paths were already set in background thread to Desktop)
         if self.svg_path and self.svg_path.exists():
             self.svg_btn.configure(state="normal")
         else:
@@ -263,28 +265,18 @@ class AstrologyGUI(ctk.CTk):
         self.html_btn.configure(state="normal")
         self.txt_btn.configure(state="normal")
 
-        files_msg = f"✅ Done! Files saved:\n   • {self.txt_path.name}\n   • {self.html_path.name}"
+        # Clear, user-friendly status that explicitly mentions the Desktop
+        desktop = get_desktop_path()
+        files_msg = f"✅ Done! Files saved to your Desktop:\n   • {self.txt_path.name}\n   • {self.html_path.name}"
         if self.svg_path and self.svg_path.exists():
             files_msg += f"\n   • {self.svg_path.name}"
+        else:
+            files_msg += "\n   (SVG chart wheel unavailable - see report for details)"
 
+        files_msg += f"\n📍 Location: {desktop}"
         self.status.configure(text=files_msg, text_color="lightgreen")
         self.calc_btn.configure(state="normal")
         log("=== CALCULATION FINISHED SUCCESSFULLY ===")
-
-    def _generate_svg_safe(self, chart_data, base_name):
-        """Generate SVG in a safe way with error handling"""
-        try:
-            log("Creating ChartDrawer...")
-            drawer = ChartDrawer(chart_data=chart_data)
-
-            log("Saving SVG...")
-            self.svg_path = Path.cwd() / f"{base_name}_natal.svg"
-            drawer.save_svg(output_path=str(Path.cwd()), filename=f"{base_name}_natal")
-
-            log("SVG saved successfully")
-        except Exception as e:
-            log(f"Error in SVG generation thread: {e}")
-            self.svg_path = None
 
     def show_error(self, error_msg):
         self.status.configure(text=f"❌ Error: {error_msg[:100]}", text_color="red")
@@ -303,8 +295,78 @@ class AstrologyGUI(ctk.CTk):
             pass
         return "Lincoln", "US", 40.8, -96.7, "America/Chicago"
 
-    def _create_txt_report(self, report_text: str, quick: str, aspects: str, base_name: str, unknown_time: bool):
-        """Create a plain text report file"""
+    def _build_quick_positions(self, subject) -> str:
+        quick = "\n\nKEY POSITIONS\n" + "=" * 50 + "\n"
+        points = [subject.sun, subject.moon, subject.mercury, subject.venus,
+                  subject.mars, subject.jupiter, subject.saturn,
+                  subject.uranus, subject.neptune, subject.pluto]
+        for p in points:
+            retro = " R" if getattr(p, 'retrograde', False) else ""
+            house = getattr(p, 'house', '—')
+            quick += f"{p.name:>10}: {p.sign} {p.position:.1f}°  House {house}{retro}\n"
+        return quick
+
+    def _build_aspects(self, subject):
+        """Return (aspects_text_block, list_of_lines) for display + file inclusion."""
+        aspects = "\n\nASPECTS\n" + "=" * 50 + "\n"
+        aspects_data = []
+        try:
+            chart_data = ChartDataFactory.create_natal_chart_data(subject)
+            if hasattr(chart_data, 'aspects') and chart_data.aspects:
+                for aspect in chart_data.aspects:
+                    p1 = aspect.p1_name
+                    p2 = aspect.p2_name
+                    asp_type = aspect.aspect
+                    orb = abs(aspect.orbit)
+                    movement = aspect.aspect_movement
+                    aspect_line = f"{p1:>10} {asp_type:>12} {p2:<10}  Orb: {orb:5.2f}°  {movement}\n"
+                    aspects += aspect_line
+                    aspects_data.append(aspect_line.strip())
+                log(f"Added {len(chart_data.aspects)} aspects")
+            else:
+                aspects += "No aspects found\n"
+        except Exception as e:
+            log(f"Error extracting aspects: {e}")
+            aspects += f"Error: {str(e)}\n"
+        return aspects, aspects_data
+
+    def _open_path(self, path: Path | None):
+        """Cross-platform: open a file with its default application."""
+        if not path or not path.exists():
+            return
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(path))
+            elif sys.platform == "darwin":
+                subprocess.call(["open", str(path)])
+            else:
+                subprocess.call(["xdg-open", str(path)])
+        except Exception:
+            # Fallback
+            try:
+                webbrowser.open(path.as_uri())
+            except Exception:
+                pass
+
+    def _open_folder(self, folder: Path):
+        """Cross-platform open folder in file manager."""
+        if not folder or not folder.exists():
+            folder = Path.home()
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(folder))
+            elif sys.platform == "darwin":
+                subprocess.call(["open", str(folder)])
+            else:
+                subprocess.call(["xdg-open", str(folder)])
+        except Exception:
+            try:
+                webbrowser.open(folder.as_uri())
+            except Exception:
+                pass
+
+    def _create_txt_report(self, report_text: str, quick: str, aspects: str, base_name: str, unknown_time: bool, output_dir: Path):
+        """Create a plain text report file on the given output_dir (Desktop)."""
         txt_content = f"🌟 {base_name}\n"
         txt_content += "=" * 70 + "\n\n"
 
@@ -318,11 +380,12 @@ class AstrologyGUI(ctk.CTk):
         txt_content += quick
         txt_content += aspects
 
+        self.txt_path = output_dir / f"{base_name}_report.txt"
         self.txt_path.write_text(txt_content, encoding="utf-8")
         log(f"Text report saved: {self.txt_path.name}")
 
-    def _create_html_report(self, report_text: str, quick: str, aspects: str, base_name: str, unknown_time: bool):
-        """Create an HTML report file WITH ASPECTS"""
+    def _create_html_report(self, report_text: str, quick: str, aspects: str, base_name: str, unknown_time: bool, output_dir: Path):
+        """Create an HTML report file WITH ASPECTS on the given output_dir (Desktop)."""
         warning_html = ""
         if unknown_time:
             warning_html = """<div style="background-color: #FFF3CD; border: 2px solid #FFC107; padding: 12px; margin: 12px 0; border-radius: 4px;">
@@ -373,21 +436,18 @@ Generated by Western Astrology Calculator
 </div>
 </body>
 </html>"""
+        self.html_path = output_dir / f"{base_name}_report.html"
         self.html_path.write_text(html_content, encoding="utf-8")
         log(f"HTML report saved: {self.html_path.name}")
 
     def open_svg(self):
-        if self.svg_path and self.svg_path.exists():
-            webbrowser.open(self.svg_path.absolute().as_uri())
+        self._open_path(self.svg_path)
 
     def open_html(self):
-        if self.html_path and self.html_path.exists():
-            webbrowser.open(self.html_path.absolute().as_uri())
+        self._open_path(self.html_path)
 
     def open_txt(self):
-        if self.txt_path and self.txt_path.exists():
-            os.startfile(self.txt_path) if sys.platform == 'win32' else os.system(
-                f'open "{self.txt_path}"' if sys.platform == 'darwin' else f'xdg-open "{self.txt_path}"')
+        self._open_path(self.txt_path)
 
 
 if __name__ == "__main__":

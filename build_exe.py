@@ -1,93 +1,140 @@
 #!/usr/bin/env python
 """
-Build script for Western Astrology Calculator
-Packages the Python app into a standalone Windows EXE file
+Cross-platform build script for Western Astrology Calculator.
 
-This script handles all the heavy lifting of PyInstaller configuration.
+- On Windows: produces Western_Astrology_Calculator.exe (single file)
+- On macOS:   produces a .app bundle + support files (or single binary with --onefile)
+- On Linux:   produces a single binary (or folder)
+
+Run this on the target platform you want to build for.
+PyInstaller does not do true cross-compilation for GUI apps.
+
+Usage:
+    python build_exe.py                 # auto onefile + windowed
+    python build_exe.py --onedir        # folder build (sometimes more reliable)
+
+After build, your artifacts are in ./dist/
 """
 
 import os
 import sys
 import subprocess
+import platform
 from pathlib import Path
 
 def main():
-    print("=" * 70)
-    print("Western Astrology Calculator - EXE Builder")
-    print("=" * 70)
-    
-    # Check if the main file exists
+    print("=" * 72)
+    print("Western Astrology Calculator — Cross-Platform Builder")
+    print("=" * 72)
+    print(f"Host platform: {platform.system()} ({platform.platform()})")
+    print()
+
     script_path = Path("astrology_gui_fixed.py")
     if not script_path.exists():
         print(f"❌ Error: {script_path} not found!")
-        print("Make sure astrology_gui_fixed.py is in the current directory.")
         sys.exit(1)
-    
-    print("\n✓ Found astrology_gui_fixed.py")
-    
-    # Check if spec file exists
-    spec_path = Path("astrology.spec")
-    if not spec_path.exists():
-        print(f"❌ Error: {spec_path} not found!")
-        print("Make sure astrology.spec is in the current directory.")
-        sys.exit(1)
-    
-    print("✓ Found astrology.spec")
-    
-    # Check if icon exists (optional)
+    print("✓ Found astrology_gui_fixed.py")
+
     icon_path = Path("icon.ico")
-    if icon_path.exists():
-        print(f"✓ Found icon.ico (will be included)")
+    has_icon = icon_path.exists()
+    if has_icon:
+        print("✓ Found icon.ico")
     else:
-        print("⚠ Warning: icon.ico not found (application will work without it)")
-    
-    print("\n" + "=" * 70)
-    print("Building EXE...")
-    print("This may take 2-5 minutes depending on your system")
-    print("=" * 70 + "\n")
-    
-    # Run PyInstaller
+        print("⚠ icon.ico not found — build will continue without a custom icon")
+
+    onedir = "--onedir" in sys.argv
+    mode = "onedir" if onedir else "onefile"
+
+    print(f"\nBuild mode: {mode} (windowed / no console)")
+    print("This may take 2–6 minutes...\n")
+
+    system = platform.system().lower()
+
     cmd = [
-        sys.executable,
-        "-m", "PyInstaller",
-        "--onefile",  # Single EXE file
-        "--windowed",  # No console window
+        sys.executable, "-m", "PyInstaller",
+        "--windowed",
         "--name", "Western_Astrology_Calculator",
-        "--icon", "icon.ico" if icon_path.exists() else None,
-        "--add-data", "icon.ico:." if icon_path.exists() else None,
-        "astrology_gui_fixed.py"
+        "astrology_gui_fixed.py",
     ]
-    
-    # Remove None values from command
-    cmd = [arg for arg in cmd if arg is not None]
-    
-    try:
-        result = subprocess.run(cmd, check=True)
-        
-        print("\n" + "=" * 70)
-        print("✅ BUILD SUCCESSFUL!")
-        print("=" * 70)
-        
-        exe_path = Path("dist") / "Western_Astrology_Calculator.exe"
-        if exe_path.exists():
-            size_mb = exe_path.stat().st_size / (1024 * 1024)
-            print(f"\n📦 EXE created: {exe_path}")
-            print(f"   Size: {size_mb:.1f} MB")
-            print(f"\n📍 Location: {exe_path.absolute()}")
-            print(f"\nYou can now distribute this EXE to others!")
-            print(f"No Python installation required on the target computer.")
+
+    if mode == "onefile":
+        cmd.insert(3, "--onefile")
+
+    if has_icon:
+        if system == "windows":
+            cmd += ["--icon", "icon.ico"]
+            # PyInstaller on Windows accepts add-data with ; or :
+            cmd += ["--add-data", "icon.ico:."]
+        elif system == "darwin":
+            # On macOS you normally want an .icns. .ico may be ignored or cause warnings.
+            # We'll still pass it; user can replace with icon.icns for best results.
+            cmd += ["--icon", "icon.ico"]
         else:
-            print("Warning: EXE file not found in dist/ folder")
-            
-    except subprocess.CalledProcessError as e:
-        print("\n" + "=" * 70)
-        print("❌ BUILD FAILED")
-        print("=" * 70)
-        print(f"\nError: {e}")
-        sys.exit(1)
+            # Linux typically uses --icon with png or just skips for onefile binary
+            cmd += ["--icon", "icon.ico"]
+
+    # Include kerykeion + pyswisseph + timezonefinder data files reliably
+    # Using the .spec is often better for complex data, but this CLI path works too.
+    try:
+        from PyInstaller.utils.hooks import collect_data_files
+        datas = []
+        datas += collect_data_files("kerykeion")
+        datas += collect_data_files("pyswisseph")
+        datas += collect_data_files("timezonefinder")
+        for src, dest in datas:
+            # PyInstaller expects "SRC:DEST" or "SRC;DEST" on Windows
+            sep = ";" if system == "windows" else ":"
+            cmd += ["--add-data", f"{src}{sep}{dest}"]
     except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
+        print(f"(Note: could not auto-collect some data files via hooks: {e})")
+        print("If the resulting binary is missing ephemeris data, use the .spec file or install from source instead.")
+
+    # Clean previous builds for this mode (optional but less confusing)
+    dist_dir = Path("dist")
+    if dist_dir.exists():
+        print("Cleaning previous dist artifacts (keep this folder if you have other builds)...")
+
+    print("\nRunning: " + " ".join(cmd) + "\n")
+
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print("\n❌ BUILD FAILED")
+        print(e)
         sys.exit(1)
+
+    print("\n" + "=" * 72)
+    print("✅ BUILD COMPLETE")
+    print("=" * 72)
+
+    if system == "windows":
+        exe = dist_dir / "Western_Astrology_Calculator.exe"
+        if exe.exists():
+            size = exe.stat().st_size / (1024*1024)
+            print(f"\n📦 Windows EXE: {exe}  ({size:.1f} MB)")
+        else:
+            # onedir case
+            folder = dist_dir / "Western_Astrology_Calculator"
+            print(f"\n📦 Windows folder app: {folder}")
+    elif system == "darwin":
+        app = dist_dir / "Western_Astrology_Calculator.app"
+        bin_ = dist_dir / "Western_Astrology_Calculator"
+        if app.exists():
+            print(f"\n📦 macOS app bundle: {app}")
+            print("   You can right-click → Open, or drag to /Applications.")
+            print("   For distribution consider creating a .dmg (e.g. with create-dmg or py2app).")
+        elif bin_.exists():
+            print(f"\n📦 macOS single binary: {bin_}  (chmod +x and run)")
+    else:
+        bin_ = dist_dir / "Western_Astrology_Calculator"
+        if bin_.exists():
+            print(f"\n📦 Linux binary: {bin_}")
+            print("   chmod +x it and run. For wider compatibility consider AppImage or a .deb package.")
+
+    print("\nAll output is in the ./dist/ directory.")
+    print("Tip: Run this build script *on the operating system* you want to target.")
+    print("=" * 72)
+
 
 if __name__ == "__main__":
     main()
