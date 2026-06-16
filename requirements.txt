@@ -1,0 +1,10 @@
+# Western Astrology Calculator - Runtime Dependencies
+# Install with: pip install -r requirements.txt
+
+customtkinter>=5.2
+geopy>=2.4
+timezonefinder>=6.0
+kerykeion>=5.0
+
+# Optional but recommended for building standalone executables:
+# pyinstaller>=6.0

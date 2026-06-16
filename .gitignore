@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# PyInstaller
+*.manifest
+*.spec
+!astrology.spec  # Explicitly keep our maintained spec file with proper data collection hooks
+# (The other .spec files that PyInstaller generates are ignored.)
+
+# Logs and runtime artifacts
+*.log
+debug.log
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific build outputs
+dist/
+build/
+Western_Astrology_Calculator*
+*.exe
+*.app
+
+# Temporary test outputs (if any)
+tmp/
+temp/
+*.tmp
+
+# OneDrive / user-specific desktop noise not relevant
