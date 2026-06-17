@@ -34,6 +34,8 @@ def main():
         print(f"❌ Error: {script_path} not found!")
         sys.exit(1)
     print("✓ Found astrology_gui_fixed.py")
+    print("  (GUI uses ttk + sv-ttk. PDF uses reportlab. cairosvg for chart PNG in PDF is OPTIONAL and often problematic to bundle.)")
+    print("   The app now runs fine without it (SVG is always saved separately + full report in PDF).")
 
     icon_path = Path("icon.ico")
     has_icon = icon_path.exists()

@@ -6,7 +6,14 @@ timezonefinder>=6.0
 kerykeion>=5.0
 sv-ttk>=2.5   # Provides modern Windows 11 (Sun Valley) native-looking ttk theme
 reportlab>=4.0  # For generating nice PDF natal chart reports
-cairosvg>=2.7   # For converting the SVG chart wheel to PNG for embedding in PDF (optional but recommended for image in PDF)
+
+# Optional (for embedding a raster PNG version of the birth chart wheel *inside* the PDF)
+# cairosvg has heavy system dependencies (cairo) and can be difficult to bundle cleanly into PyInstaller EXEs on Windows.
+# The app will work fine without it — the high-quality .svg is always saved separately, and the PDF will contain
+# a clear note + all the data and interpretations.
+# If you want the image embedded in the PDF when running from source: pip install cairosvg
+# For EXE builds, you can omit it or experiment with --collect-all cairosvg in PyInstaller.
+# cairosvg>=2.7
 
 # Optional but recommended for building standalone executables:
 # pyinstaller>=6.0

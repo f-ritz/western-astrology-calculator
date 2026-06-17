@@ -27,6 +27,9 @@ from kerykeion import ReportGenerator
 # Our custom interpretations database (easy for you to edit as an astrologer)
 import interpretations
 
+# For displaying full sign names instead of 3-letter codes
+SIGN_FULL = interpretations.SIGN_FULL
+
 # PDF generation
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -34,7 +37,21 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
-import cairosvg  # for SVG to PNG for embedding the chart wheel in the PDF (graceful fallback if missing)
+
+# For pie charts in PDF (elements and qualities)
+from reportlab.graphics.shapes import Drawing, Rect, String
+from reportlab.graphics.charts.piecharts import Pie
+from reportlab.lib.colors import HexColor, white, black
+
+# cairosvg is OPTIONAL — used only to rasterize the SVG chart into a PNG for embedding inside the PDF.
+# If it's missing (common in packaged EXEs because of its cairo system dependency), we fall back gracefully.
+# The .svg file is always saved separately as the high-quality vector version.
+try:
+    import cairosvg
+    HAS_CAIROSVG = True
+except Exception:
+    # Catches ImportError + OSError (e.g. missing native cairo DLLs on Windows)
+    HAS_CAIROSVG = False
 
 
 def resource_path(relative_path):
@@ -360,7 +377,7 @@ class AstrologyGUI(tk.Tk):
     def _build_quick_positions(self, subject) -> str:
         quick = "\n\nKEY POSITIONS\n"
         quick += "-" * 70 + "\n"
-        quick += f"{'Planet':<12} | {'Sign':<8} | {'Degree':>7} | {'House':<6} | {'Retro':<5}\n"
+        quick += f"{'Planet':<12} | {'Sign':<10} | {'Degree':>7} | {'House':<6} | {'Retro':<5}\n"
         quick += "-" * 70 + "\n"
         points = [subject.sun, subject.moon, subject.mercury, subject.venus,
                   subject.mars, subject.jupiter, subject.saturn,
@@ -368,7 +385,16 @@ class AstrologyGUI(tk.Tk):
         for p in points:
             retro = "R" if getattr(p, 'retrograde', False) else ""
             house = getattr(p, 'house', '—')
-            quick += f"{p.name:<12} | {p.sign:<8} | {p.position:>6.2f}° | {str(house):<6} | {retro:<5}\n"
+            # Normalize kerykeion house strings like 'Ninth_House' to just the number
+            if isinstance(house, str) and '_House' in house:
+                hmap = {'First':1,'Second':2,'Third':3,'Fourth':4,'Fifth':5,'Sixth':6,
+                        'Seventh':7,'Eighth':8,'Ninth':9,'Tenth':10,'Eleventh':11,'Twelfth':12}
+                for w, n in hmap.items():
+                    if w in house:
+                        house = n
+                        break
+            full_sign = SIGN_FULL.get(p.sign[:3], p.sign)
+            quick += f"{p.name:<12} | {full_sign:<10} | {p.position:>6.2f}° | {str(house):<6} | {retro:<5}\n"
         quick += "-" * 70 + "\n"
         return quick
 
@@ -500,10 +526,10 @@ class AstrologyGUI(tk.Tk):
         pdf_path = output_dir / f"{base_name}_natal_report.pdf"
         self.pdf_path = pdf_path
 
-        # Try to produce a PNG of the chart wheel for embedding
+        # Try to produce a PNG of the chart wheel for embedding (only if cairosvg is available)
         png_path = output_dir / f"{base_name}_natal_chart.png"
         chart_image_path = None
-        if self.svg_path and self.svg_path.exists():
+        if self.svg_path and self.svg_path.exists() and HAS_CAIROSVG:
             try:
                 cairosvg.svg2png(url=str(self.svg_path), write_to=str(png_path), output_width=700, output_height=700)
                 if png_path.exists():
@@ -512,6 +538,8 @@ class AstrologyGUI(tk.Tk):
             except Exception as e:
                 log(f"Could not convert SVG to PNG for PDF (cairosvg issue?): {e}")
                 chart_image_path = None  # Will note the SVG file instead
+        elif self.svg_path and self.svg_path.exists():
+            log("cairosvg not available — PNG rasterization skipped. SVG will be noted in the PDF instead.")
 
         # Build the PDF
         doc = SimpleDocTemplate(str(pdf_path), pagesize=letter,
@@ -545,17 +573,8 @@ class AstrologyGUI(tk.Tk):
         story.append(Paragraph(birth_info, body_style))
         story.append(Spacer(1, 8))
 
-        # Chart image
-        if chart_image_path:
-            try:
-                img = Image(str(chart_image_path), width=5.5*inch, height=5.5*inch)
-                story.append(img)
-                story.append(Paragraph("<i>Visual natal wheel (also saved as separate .svg for high-quality vector use)</i>", small))
-            except Exception:
-                story.append(Paragraph("<i>[Chart wheel image could not be embedded — see the separate .svg file on your Desktop]</i>", small))
-        else:
-            story.append(Paragraph("<i>Visual natal wheel saved separately as .svg (open in browser or vector editor). The full interpretive report is below.</i>", small))
-        story.append(Spacer(1, 10))
+        # Chart image computation done earlier; the actual picture is placed at the END of the report (own page) per request.
+        # (No image here to keep summary first, visual at the end.)
 
         # Summary tables with headers
         story.append(Paragraph("Chart Summary — Positions", heading2))
@@ -610,9 +629,82 @@ class AstrologyGUI(tk.Tk):
             story.append(t2)
         story.append(Spacer(1, 6))
 
-        # Elements & Qualities (already nicely formatted in elem_qual)
-        story.append(Paragraph("Elemental & Quality Balance (10 planets + Asc + MC only)", heading2))
-        story.append(Paragraph(elem_qual.replace("\n", "<br/>"), small))
+        # === Pie charts for Elements and Qualities (no simple text percentages) ===
+        # Compute counts using subject (restricted to 10 planets + Asc + MC)
+        _ELEM_MAP = {
+            'Ari': 'Fire', 'Leo': 'Fire', 'Sag': 'Fire',
+            'Tau': 'Earth', 'Vir': 'Earth', 'Cap': 'Earth',
+            'Gem': 'Air', 'Lib': 'Air', 'Aqu': 'Air',
+            'Can': 'Water', 'Sco': 'Water', 'Pis': 'Water',
+        }
+        _QUAL_MAP = {
+            'Ari': 'Cardinal', 'Can': 'Cardinal', 'Lib': 'Cardinal', 'Cap': 'Cardinal',
+            'Tau': 'Fixed', 'Leo': 'Fixed', 'Sco': 'Fixed', 'Aqu': 'Fixed',
+            'Gem': 'Mutable', 'Vir': 'Mutable', 'Sag': 'Mutable', 'Pis': 'Mutable',
+        }
+        sel_pts = [subject.sun, subject.moon, subject.mercury, subject.venus, subject.mars,
+                   subject.jupiter, subject.saturn, subject.uranus, subject.neptune, subject.pluto,
+                   subject.first_house, subject.tenth_house]
+        e_counts = {'Fire': 0, 'Earth': 0, 'Air': 0, 'Water': 0}
+        q_counts = {'Cardinal': 0, 'Fixed': 0, 'Mutable': 0}
+        for pt in sel_pts:
+            ss = getattr(pt, 'sign', None)
+            if ss:
+                ss = ss[:3]
+                if ee := _ELEM_MAP.get(ss): e_counts[ee] += 1
+                if qq := _QUAL_MAP.get(ss): q_counts[qq] += 1
+
+        # Colors per user request
+        fire_c = HexColor('#FF6347')   # red/orange for fire
+        air_c  = HexColor('#D3D3D3')   # light gray for air
+        water_c = HexColor('#4682B4')  # mid blue for water
+        earth_c = HexColor('#228B22')  # nice green for earth
+
+        card_c = HexColor('#DC143C')   # red for cardinal
+        fixed_c = HexColor('#228B22')  # green for fixed
+        mut_c  = HexColor('#4169E1')   # nice blue for mutable
+
+        def _make_pie_chart(data_dict, title, color_list):
+            # Make drawing taller so legend goes below the pie (no overlap)
+            # Legend left-aligned under the pie; whole drawing will be centered in report
+            d = Drawing(220, 155)
+            pie = Pie()
+            pie.x = 55
+            pie.y = 50  # raised to leave space below for legend
+            pie.width = 90
+            pie.height = 90
+            labels = list(data_dict.keys())
+            vals = [data_dict[k] for k in labels]
+            pie.data = vals
+            pie.labels = labels
+            pie.slices.strokeWidth = 0.5
+            for i, col in enumerate(color_list):
+                pie.slices[i].fillColor = col
+            d.add(pie)
+            d.add(String(110, 145, title, fontSize=9, textAnchor='middle', fontName='Helvetica-Bold'))
+            # Legend BELOW pie, left aligned
+            total = sum(vals) or 1
+            y = 35
+            for i, (lab, val) in enumerate(zip(labels, vals)):
+                pct = (val / total) * 100
+                d.add(Rect(8, y-2, 8, 8, fillColor=color_list[i], strokeColor=None))
+                d.add(String(20, y, f"{lab}: {pct:.1f}%", fontSize=7))
+                y -= 12
+            return d
+
+        story.append(Paragraph("Elemental Proportions", heading2))
+        elem_pie = _make_pie_chart(e_counts, "Elements", [fire_c, earth_c, air_c, water_c])
+        # Center the pie chart in the report
+        elem_table = Table([[elem_pie]], colWidths=[6.2*inch])
+        elem_table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
+        story.append(elem_table)
+        story.append(Spacer(1, 6))
+
+        story.append(Paragraph("Quality / Modality Proportions", heading2))
+        qual_pie = _make_pie_chart(q_counts, "Qualities", [card_c, fixed_c, mut_c])
+        qual_table = Table([[qual_pie]], colWidths=[6.2*inch])
+        qual_table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
+        story.append(qual_table)
         story.append(Spacer(1, 10))
 
         # Detailed Interpretive Breakdown
@@ -637,13 +729,24 @@ class AstrologyGUI(tk.Tk):
         for p in main_planets:
             p_name = p.name
             sign = getattr(p, 'sign', '—')
+            full_sign = SIGN_FULL.get(sign[:3] if sign else '', sign)
             house = getattr(p, 'house', None)
             degree = getattr(p, 'position', 0)
             is_retro = getattr(p, 'retrograde', False)
 
-            line = f"<b>{p_name} in {sign} {degree:.1f}°"
-            if house:
-                line += f" — House {house}"
+            # Normalize house to just number (kerykeion sometimes gives 'Ninth_House' etc.)
+            if isinstance(house, str) and '_House' in house:
+                hmap = {'First':1,'Second':2,'Third':3,'Fourth':4,'Fifth':5,'Sixth':6,
+                        'Seventh':7,'Eighth':8,'Ninth':9,'Tenth':10,'Eleventh':11,'Twelfth':12}
+                for w, n in hmap.items():
+                    if w in house:
+                        house = n
+                        break
+            house_num = house if house not in (None, '—') else '—'
+
+            line = f"<b>{p_name} in {full_sign} {degree:.1f}°"
+            if house_num != '—':
+                line += f" — House {house_num}"
             if is_retro:
                 line += " (Retrograde)"
             line += "</b>"
@@ -654,9 +757,13 @@ class AstrologyGUI(tk.Tk):
             story.append(Paragraph(sign_interp, body_style))
 
             # House interp
-            if house and isinstance(house, (int, float)):
-                house_interp = interpretations.get_planet_house_interpretation(p_name, int(house))
-                story.append(Paragraph(f"<i>House {int(house)}:</i> {house_interp}", small))
+            if house_num != '—':
+                try:
+                    h_int = int(house_num)
+                    house_interp = interpretations.get_planet_house_interpretation(p_name, h_int)
+                    story.append(Paragraph(f"<i>House {h_int}:</i> {house_interp}", small))
+                except:
+                    pass
 
             # Retro note
             if is_retro:
@@ -679,16 +786,43 @@ class AstrologyGUI(tk.Tk):
             story.append(Spacer(1, 6))
 
         # Asc and MC brief
+        # Note: custom Asc/MC interps live in interpretations.py (ASC_SIGN_INTERPS / MC_SIGN_INTERPS)
+        # They are left blank here if not present so nothing shows in the report.
         try:
             asc_sign = getattr(subject.first_house, 'sign', '—')
             mc_sign = getattr(subject.tenth_house, 'sign', '—')
-            story.append(Paragraph(f"<b>Ascendant (Rising) in {asc_sign}</b> — Your approach to life and first impression. Customize interpretation in interpretations.py", body_style))
-            story.append(Paragraph(f"<b>Midheaven (MC) in {mc_sign}</b> — Public path, career, and legacy. Customize in interpretations.py", body_style))
+            full_asc = SIGN_FULL.get(asc_sign[:3], asc_sign)
+            full_mc = SIGN_FULL.get(mc_sign[:3], mc_sign)
+            asc_interp = interpretations.get_ascendant_interpretation(asc_sign)
+            mc_interp = interpretations.get_midheaven_interpretation(mc_sign)
+            story.append(Paragraph(f"<b>Ascendant (Rising) in {full_asc}</b> — Your approach to life and first impression.", body_style))
+            if asc_interp and "Customize" not in asc_interp and "Add your custom" not in asc_interp:
+                story.append(Paragraph(asc_interp, small))
+            story.append(Paragraph(f"<b>Midheaven (MC) in {full_mc}</b> — Public path, career, and legacy.", body_style))
+            if mc_interp and "Customize" not in mc_interp and "Add your custom" not in mc_interp:
+                story.append(Paragraph(mc_interp, small))
         except:
             pass
 
-        story.append(Spacer(1, 12))
-        story.append(Paragraph("— End of Report —<br/>SVG vector chart wheel and this PDF are both on your Desktop.", small))
+        # Birth chart picture on its own page at the very end (as requested)
+        story.append(PageBreak())
+        story.append(Paragraph("Natal Birth Chart", title_style))
+        story.append(Spacer(1, 20))
+        if chart_image_path:
+            try:
+                img = Image(str(chart_image_path), width=6*inch, height=6*inch)
+                img_table = Table([[img]], colWidths=[6.5*inch])
+                img_table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
+                story.append(img_table)
+                story.append(Spacer(1, 10))
+                story.append(Paragraph("<i>Visual natal wheel (high-quality vector version also saved separately as .svg on your Desktop)</i>", small))
+            except Exception:
+                story.append(Paragraph("<i>[Chart wheel image could not be embedded — see the separate .svg file on your Desktop]</i>", small))
+        else:
+            story.append(Paragraph("The full-color birth chart wheel is saved as a separate high-quality SVG file on your Desktop (open it in any web browser or vector graphics editor for the best view).", body_style))
+
+        story.append(Spacer(1, 20))
+        story.append(Paragraph("— End of Report —", small))
 
         # Build
         doc.build(story)

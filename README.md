@@ -1,17 +1,24 @@
-<<<<<<< HEAD
 # Western Astrology Calculator
 
 A desktop GUI (and CLI) tool that calculates a full Western (tropical) natal chart using accurate geolocation + timezone data and the excellent [Kerykeion](https://github.com/g-battaglia/kerykeion) library.
 
-**Key features**
+## Key Features (v2.0)
+
 - Accurate natal chart for any birth date/time/place (offline ephemeris after first setup)
 - Handles "unknown birth time" (defaults to noon with big warning — house/angle accuracy suffers)
-- Produces three artifacts every time:
-  - `_report.txt` — plain text summary
-  - `_report.html` — nicely formatted report you can open/print/share
-  - `_natal.svg` — the actual round birth chart wheel graphic (SVG = scalable, open in any browser or vector editor)
-- **All output files are written to your Desktop** for instant access (no hunting in CWD or next to the EXE)
-- Cross-platform source + buildable standalone apps for Windows, macOS, and Linux
+- **Primary output: Professional PDF report** including:
+  - Birth details
+  - Summary tables with proper headers (planetary positions with full sign names, aspects, houses displayed cleanly as "House X")
+  - **Visual pie charts** for Elemental proportions (Fire: red/orange, Air: light gray, Water: mid blue, Earth: nice green) and Quality/Modality proportions (Cardinal: red, Fixed: green, Mutable: nice blue) — centered with left-aligned keys
+  - Detailed interpretive breakdown: planet-by-planet (sign + house + retrograde notes + aspects) using editable interpretations
+  - Ascendant (Rising) and Midheaven interpretations
+  - The actual birth chart wheel image on its **own dedicated page at the end**
+- Separate high-quality **SVG** of the natal chart wheel always saved (vector, scalable, open in browser or editor)
+- **All output files written to your Desktop** for instant access
+- Modern native Windows GUI appearance (uses `ttk` + `sv-ttk` Sun Valley theme — no more heavy customtkinter styling)
+- Fully **editable interpretations database** in `interpretations.py` (planet sign/house placements, aspects, Ascendant, Midheaven, retrograde notes) — sourced from Cafe Astrology with placeholders for your own research as an astrologer
+- CLI available for simple text-based use
+- Cross-platform source + easy Windows EXE builds
 
 ## Run from source (recommended for Mac + Linux, also works on Windows)
 
@@ -37,42 +44,40 @@ python astrology_gui_fixed.py
 python astrology_calculator.py
 ```
 
-## Build standalone apps (no Python needed on end-user machine)
+## Build standalone Windows app (no Python needed on end-user machine)
 
-You must run the build **on the OS you want to target** (PyInstaller does not cross-compile GUI binaries well).
+You must run the build **on Windows** (PyInstaller does not cross-compile GUI binaries well).
 
-```bash
+```powershell
 pip install -r requirements.txt
 pip install pyinstaller
 python build_exe.py
 ```
 
-- Windows → `dist/Western_Astrology_Calculator.exe` (double-clickable)
-- macOS   → `dist/Western_Astrology_Calculator.app` (or a single binary)
-- Linux   → `dist/Western_Astrology_Calculator` (chmod +x and run)
+- Produces `Western_Astrology_Calculator.exe` in the `dist` folder (single-file by default)
 
-You can also use the platform spec directly:
+You can also use the spec directly:
 
-```bash
+```powershell
 pyinstaller astrology.spec
 ```
 
-**Note on icons**: Only `icon.ico` is currently in the repo. For best macOS results create an `icon.icns` and update the build command / spec.
+**Note on icons**: Only `icon.ico` is currently in the repo.
 
 ## Where the files go
 
-After you click "Generate Natal Chart" (or run the CLI), look on your **Desktop**:
+After you click "Generate Natal Chart", look on your **Desktop**:
 
 ```
-YourName_1990-05-15_natal_report.pdf   ← the main nicely formatted report (includes chart image + full data + detailed planet-by-planet + aspect interpretations)
-YourName_1990-05-15_natal.svg          ← the vector birth chart wheel (kept as high-quality separate file)
+YourName_1990-05-15_natal_report.pdf   ← Main formatted report (tables, pie charts, detailed interps, chart image on last page)
+YourName_1990-05-15_natal.svg          ← High-quality vector birth chart wheel
 ```
 
-A message in the app also tells you the exact path.
+A message in the app tells you the exact path.
 
-The old .txt and .html are no longer the primary output (PDF is). Legacy buttons may still appear for compatibility.
+If birth time was left blank/unknown, files get a `_noon_time` suffix and prominent warnings.
 
-If birth time was left blank/unknown, the files get a `_noon_time` suffix and a prominent warning is included in all outputs.
+Legacy TXT/HTML buttons may appear for compatibility but are no longer primary.
 
 ## Notes / Limitations
 
@@ -80,38 +85,22 @@ If birth time was left blank/unknown, the files get a `_noon_time` suffix and a 
 - For highest house accuracy you really do need the exact birth time (minutes matter for the Ascendant).
 - Location uses Nominatim (OpenStreetMap). If it fails it silently falls back to Lincoln, Nebraska.
 - This is Western tropical astrology only (no sidereal, no Chinese, no numerology).
+- `cairosvg` (for embedding a PNG version of the chart in the PDF) is optional — the app and PDF work fully without it (SVG is always available separately). It can be tricky to bundle into EXEs.
+- Interpretations are a starter set based on Cafe Astrology (public material). Edit `interpretations.py` freely for your own research.
 
 ## Project layout (main files)
 
-- `astrology_gui_fixed.py` — the current GUI (packaged). Now uses standard ttk + sv-ttk for a much more native Windows appearance instead of customtkinter.
-- `astrology_calculator.py` — simple terminal version
-- `build_exe.py` — cross-platform PyInstaller driver (Windows / macOS / Linux)
-- `astrology.spec` — advanced PyInstaller spec (collects kerykeion + swisseph data)
-- `requirements.txt` — runtime deps (includes sv-ttk)
+- `astrology_gui_fixed.py` — the current GUI (packaged). Uses standard `ttk` + `sv-ttk` for native Windows appearance.
+- `astrology_calculator.py` — simple terminal/CLI version
+- `interpretations.py` — **editable database** for all planet sign/house, aspect, Ascendant, Midheaven, and retrograde interpretations
+- `build_exe.py` — PyInstaller driver (Windows-focused)
+- `astrology.spec` — advanced PyInstaller spec (collects kerykeion + pyswisseph data)
+- `requirements.txt` — runtime deps (reportlab for PDF, sv-ttk for GUI, etc.)
 - `build.bat` — convenience builder for Windows (optional)
+- `icon.ico` — app icon
 
 ## License
 
 See LICENSE.
-=======
-# western-astrology-calculator
-Western astrology calculator (does not do numerology or Chinese astrology like my other repository)
 
-Western astrology deals with the motions of planets; it is different from Chinese astrology (12 animals).
-It tends to be a more individualistic "soul print", whereas Chinese astrology deals with cycles of time and describes if things are well-timed.
-For best results you should layer both; far be it from me to tell you how.
-
-Currently, this script uses birth details to create your chart. It corrects for DST automatically. If you don't have a birth time, it will assume 12:00, though your Ascendant and houses will not be accurate.
-Things this script calculates:
-- Planet positions
-- Aspects
-- Houses
-
-Results from the .exe file are printed in an HTML file, as well as a TXT file in the same directory as your .exe file.
-
-A pictorical version does not exist yet. Maybe soon it will be added.
-
-As of 5/13/26, this app is Windows only. I don't have a Mac :P.
-
-For entertainment purposes only. Many things go into making decisions in life, and the responsibility of interpretation of astrological calculations weighs exclusively on the practicioner.
->>>>>>> 020710eba8c86730c7ba8c207d61ce6b2a21ef38
+For entertainment/educational purposes. Interpretation of astrological data is the responsibility of the practitioner.
